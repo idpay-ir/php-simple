@@ -2,70 +2,156 @@
 
 require_once('variables.php');
 
-if (empty($_POST['status']) ||
-    empty($_POST['id']) ||
-    empty($_POST['track_id']) ||
-    empty($_POST['order_id']) ||
-    empty($_POST['amount']) ||
-    empty($_POST['amount'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $response = $_POST;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+  $response = $_GET;
+}
+
+if (empty($response['status']) ||
+    empty($response['id']) ||
+    empty($response['track_id']) ||
+    empty($response['order_id'])) {
 
   return FALSE;
 }
 
-if ($_POST['status'] != 100) {
+if ($response['status'] != 10) {
+  print idpay_payment_get_message($response['status']);
+}
+
+// if $response['id'] was not in the database return FALSE
+
+$inquiry = idpay_payment_get_inquiry($response);
+
+if ($inquiry) {
+  $verify = idpay_payment_verify($response);
+}
+
+
+/**
+ * @param array $response
+ * @return bool
+ */
+function idpay_payment_get_inquiry($response) {
+
+  $header = array(
+    'Content-Type: application/json',
+    'X-API-KEY:' . APIKEY,
+    'X-SANDBOX:' . SANDBOX,
+  );
+
+  $params = array(
+    'id' => $response['id'],
+    'order_id' => $response['order_id'],
+  );
+
+  $ch = curl_init();
+  curl_setopt($ch, CURLOPT_URL, URL_INQUIRY);
+  curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
+  curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+
+  $result = curl_exec($ch);
+  curl_close($ch);
+
+  $result = json_decode($result);
+
+  if (empty($result) ||
+      empty($result->status)) {
+
+    print 'Exception message:';
+    print '<pre>';
+    print_r($result);
+    print '</pre>';
+
+    return FALSE;
+  }
+
+  if ($result->status == 10) {
+    return TRUE;
+  }
+
+  print idpay_payment_get_message($result->status);
+
   return FALSE;
 }
 
-// if $_POST['id'] was not in the database return FALSE
 
+/**
+ * @param array $response
+ * @return bool
+ */
+function idpay_payment_verify($response) {
 
-$header = array(
-  'Content-Type: application/json',
-  'X-API-KEY:' . APIKEY,
-  'X-SANDBOX:' . SANDBOX,
-);
+  $header = array(
+    'Content-Type: application/json',
+    'X-API-KEY:' . APIKEY,
+    'X-SANDBOX:' . SANDBOX,
+  );
 
-$params = array(
-  'id' => $_POST['id'],
-  'order_id' => $_POST['order_id'],
-);
+  $params = array(
+    'id' => $response['id'],
+    'order_id' => $response['order_id'],
+  );
 
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, URL_INQUIRY);
-curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+  $ch = curl_init();
+  curl_setopt($ch, CURLOPT_URL, URL_VERIFY);
+  curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
+  curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
 
-$result = curl_exec($ch);
-curl_close($ch);
+  $result = curl_exec($ch);
+  curl_close($ch);
 
-$result = json_decode($result);
+  $result = json_decode($result);
 
-if (empty($result) ||
-    empty($result->status)) {
+  if (empty($result) ||
+      empty($result->status)) {
 
-  print 'Error handeling';
-  return FALSE;
+    print 'Exception message:';
+    print '<pre>';
+    print_r($result);
+    print '</pre>';
+
+    return FALSE;
+  }
+
+  print idpay_payment_get_message($result->status);
+
+  print '<pre>';
+  print_r($result);
+  print '</pre>';
 }
 
-switch ($result->status) {
-  case 1:
-    print 'پرداخت انجام نشده است';
-    return;
+/**
+ * @param int $status
+ * @return string
+ */
+function idpay_payment_get_message($status) {
 
-  case 2:
-    print 'پرداخت ناموفق بوده است';
-    return;
+  switch ($status) {
+    case 1:
+      return 'پرداخت انجام نشده است';
 
-  case 3:
-    print 'خطا رخ داده است';
-    return;
+    case 2:
+      return 'پرداخت ناموفق بوده است';
 
-  case 100:
-    print 'پرداخت تایید شده است';
-    return;
+    case 3:
+      return 'خطا رخ داده است';
 
-  default:
-    print 'Error handeling';
-    return;
+    case 10:
+      return 'در انتظار تایید پرداخت';
+
+    case 100:
+      return 'پرداخت تایید شده است';
+
+    case 101:
+      return 'پرداخت قبلاً تایید شده است';
+
+    default:
+      return 'Error handeling';
+  }
 }
